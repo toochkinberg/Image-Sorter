@@ -7,9 +7,10 @@ import streamlit as st
 import streamlit_hotkeys as hotkeys
 import random
 import sqlite3
+from datetime import datetime
 
 ############ CHANGE ############
-SOURCE_DIR = r"C:\Main\Thrash\Sedan"
+SOURCE_DIR = r"ПУТЬ_ДО_СЫРОЙ_ПАПКИ"
 
 # Folder names
 DETAILS_DIR = "Детали"
@@ -157,6 +158,24 @@ def rebuild_state():
     save_state(state)
     return state
 
+# Log action to history
+def log_action(user_id, filename, action):
+    conn = sqlite3.connect(STATE_DB, check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL;")
+    cursor.execute('''CREATE TABLE IF NOT EXISTS action_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT,
+        user_id TEXT,
+        filename TEXT,
+        action TEXT
+    )''')
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute('''INSERT INTO action_history (timestamp, user_id, filename, action)
+                     VALUES (?, ?, ?, ?)''', (timestamp, user_id, filename, action))
+    conn.commit()
+    conn.close()
+
 hotkeys.activate([
     hotkeys.hk("details", "q"),  # Q для "Детали"
     hotkeys.hk("details", "й"),  # Q для "Детали"
@@ -186,7 +205,7 @@ if user_id == "admin":
 else:
     remaining_source_images = [img for img in state["batches"].get(user_id, []) if img not in state["global_processed"]]
 
-tab1, tab2, tab3 = st.tabs(["Стата и предпросмотр", "Сортировка", "Статистика по пользователям"])
+tab1, tab2, tab3, tab4 = st.tabs(["Стата и предпросмотр", "Сортировка", "Статистика по пользователям", "Журнал (плейбой чи шо)"])
 
 with tab1:
     # Collect info
@@ -339,6 +358,7 @@ with tab2:
                 state["global_processed"].append(img_path)
                 state["user_processed"][user_id].append(img_path)
                 state["current_sort_index"][user_id] = min(current_index + 1, len(remaining_source_images) - 1)
+                log_action(user_id, os.path.basename(img_path), f"Перемещено в {BROKEN_DIR} (автоматически)")
                 save_state(state)
                 st.rerun()
 
@@ -349,6 +369,7 @@ with tab2:
                     state["global_processed"].append(img_path)
                     state["user_processed"][user_id].append(img_path)
                     state["current_sort_index"][user_id] = min(current_index + 1, len(remaining_source_images) - 1)
+                    log_action(user_id, os.path.basename(img_path), f"Перемещено в {DETAILS_DIR}")
                     st.success(f"Изображение перемещено в {DETAILS_DIR}")
                     save_state(state)
                 except Exception as e:
@@ -361,6 +382,7 @@ with tab2:
                     state["global_processed"].append(img_path)
                     state["user_processed"][user_id].append(img_path)
                     state["current_sort_index"][user_id] = min(current_index + 1, len(remaining_source_images) - 1)
+                    log_action(user_id, os.path.basename(img_path), f"Перемещено в {DAMAGES_DIR}")
                     st.success(f"Изображение перемещено в {DAMAGES_DIR}")
                     save_state(state)
                 except Exception as e:
@@ -373,6 +395,7 @@ with tab2:
                     state["global_processed"].append(img_path)
                     state["user_processed"][user_id].append(img_path)
                     state["current_sort_index"][user_id] = min(current_index + 1, len(remaining_source_images) - 1)
+                    log_action(user_id, os.path.basename(img_path), f"Перемещено в {BROKEN_DIR}")
                     st.success(f"Изображение перемещено в {BROKEN_DIR}")
                     save_state(state)
                 except Exception as e:
@@ -385,6 +408,7 @@ with tab2:
                     state["global_processed"].append(img_path)
                     state["user_processed"][user_id].append(img_path)
                     state["current_sort_index"][user_id] = min(current_index + 1, len(remaining_source_images) - 1)
+                    log_action(user_id, os.path.basename(img_path), f"Перемещено в {TRASH_DIR}")
                     st.success(f"Изображение перемещено в {TRASH_DIR}")
                     save_state(state)
                 except Exception as e:
@@ -399,6 +423,7 @@ with tab2:
                     state["global_processed"].append(img_path)
                     state["user_processed"][user_id].append(img_path)
                     state["current_sort_index"][user_id] = min(current_index + 1, len(remaining_source_images) - 1)
+                    log_action(user_id, os.path.basename(img_path), f"Перемещено в {DETAILS_DIR}")
                     st.success(f"Изображение перемещено в {DETAILS_DIR}")
                     save_state(state)
                 except Exception as e:
@@ -411,6 +436,7 @@ with tab2:
                     state["global_processed"].append(img_path)
                     state["user_processed"][user_id].append(img_path)
                     state["current_sort_index"][user_id] = min(current_index + 1, len(remaining_source_images) - 1)
+                    log_action(user_id, os.path.basename(img_path), f"Перемещено в {DAMAGES_DIR}")
                     st.success(f"Изображение перемещено в {DAMAGES_DIR}")
                     save_state(state)
                 except Exception as e:
@@ -423,6 +449,7 @@ with tab2:
                     state["global_processed"].append(img_path)
                     state["user_processed"][user_id].append(img_path)
                     state["current_sort_index"][user_id] = min(current_index + 1, len(remaining_source_images) - 1)
+                    log_action(user_id, os.path.basename(img_path), f"Перемещено в {BROKEN_DIR}")
                     st.success(f"Изображение перемещено в {BROKEN_DIR}")
                     save_state(state)
                 except Exception as e:
@@ -435,6 +462,7 @@ with tab2:
                     state["global_processed"].append(img_path)
                     state["user_processed"][user_id].append(img_path)
                     state["current_sort_index"][user_id] = min(current_index + 1, len(remaining_source_images) - 1)
+                    log_action(user_id, os.path.basename(img_path), f"Перемещено в {TRASH_DIR}")
                     st.success(f"Изображение перемещено в {TRASH_DIR}")
                     save_state(state)
                 except Exception as e:
@@ -468,6 +496,7 @@ with tab2:
                 try:
                     shutil.move(img_path, os.path.join(DETAILS_DIR, os.path.basename(img_path)))
                     state["current_trash_index"][user_id] = min(current_index + 1, len(trash_images) - 1)
+                    log_action(user_id, os.path.basename(img_path), f"Перемещено в {DETAILS_DIR}")
                     save_state(state)
                     st.rerun()
                 except Exception as e:
@@ -477,6 +506,7 @@ with tab2:
                 try:
                     shutil.move(img_path, os.path.join(DAMAGES_DIR, os.path.basename(img_path)))
                     state["current_trash_index"][user_id] = min(current_index + 1, len(trash_images) - 1)
+                    log_action(user_id, os.path.basename(img_path), f"Перемещено в {DAMAGES_DIR}")
                     save_state(state)
                     st.rerun()
                 except Exception as e:
@@ -486,6 +516,7 @@ with tab2:
                 try:
                     os.remove(img_path)
                     state["current_trash_index"][user_id] = min(current_index + 1, len(trash_images) - 1)
+                    log_action(user_id, os.path.basename(img_path), "Удалено")
                     save_state(state)
                     st.rerun()
                 except Exception as e:
@@ -522,6 +553,7 @@ with tab2:
                     if img_path in state["user_processed"][user_id]:
                         state["user_processed"][user_id].remove(img_path)
                     state["current_broken_index"][user_id] = min(current_index + 1, len(broken_images) - 1)
+                    log_action(user_id, os.path.basename(img_path), "Возвращено в Source")
                     save_state(state)
                     st.rerun()
                 except Exception as e:
@@ -531,6 +563,7 @@ with tab2:
                 try:
                     os.remove(img_path)
                     state["current_broken_index"][user_id] = min(current_index + 1, len(broken_images) - 1)
+                    log_action(user_id, os.path.basename(img_path), "Удалено")
                     save_state(state)
                     st.rerun()
                 except Exception as e:
@@ -648,3 +681,28 @@ with tab3:
             st.pyplot(fig)
         else:
             st.write("Нет данных для диаграммы.")
+
+with tab4:
+    st.subheader("История действий")
+    conn = sqlite3.connect(STATE_DB, check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL;")
+    cursor.execute('''CREATE TABLE IF NOT EXISTS action_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT,
+        user_id TEXT,
+        filename TEXT,
+        action TEXT
+    )''')
+    if user_id == "admin":
+        cursor.execute('''SELECT timestamp, user_id, filename, action FROM action_history ORDER BY timestamp DESC''')
+    else:
+        cursor.execute('''SELECT timestamp, user_id, filename, action FROM action_history WHERE user_id = ? ORDER BY timestamp DESC''', (user_id,))
+    history = cursor.fetchall()
+    conn.close()
+
+    if history:
+        df = pd.DataFrame(history, columns=["Время", "Пользователь", "Имя файла", "Действие"])
+        st.dataframe(df, use_container_width=True)
+    else:
+        st.write("История действий пуста.")
