@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import streamlit as st
 import streamlit_hotkeys as hotkeys
 import random
+import sqlite3
 
 ############ CHANGE ############
 SOURCE_DIR = r"C:\Main\Thrash\Sedan"
@@ -19,8 +20,8 @@ BROKEN_DIR = "Чёто не то"
 # All managed directories
 MANAGED_DIRS = [DETAILS_DIR, DAMAGES_DIR, TRASH_DIR, BROKEN_DIR]
 
-# State file for saving progress
-STATE_FILE = "sorting_state.json"
+# State database for saving progress
+STATE_DB = "sorting_state.db"
 
 # Test user IDs
 USER_IDS = [
@@ -43,6 +44,17 @@ def get_images_in_dir(directory):
             images.append(os.path.join(directory, file))
     return sorted(images)
 
+# Calculate folder stats
+def get_folder_stats(directory):
+    count = 0
+    total_size = 0
+    for file in os.listdir(directory):
+        file_path = os.path.join(directory, file)
+        if os.path.isfile(file_path):
+            count += 1
+            total_size += os.path.getsize(file_path)
+    return count, total_size / (1024 * 1024)  # Size in MB
+
 # Calculate folder stats for a specific set of basenames
 def get_folder_stats_for_batch(directory, batch_basenames):
     count = 0
@@ -55,47 +67,95 @@ def get_folder_stats_for_batch(directory, batch_basenames):
                 total_size += os.path.getsize(file_path)
     return count, total_size / (1024 * 1024)  # Size in MB
 
-# Calculate folder stats
-def get_folder_stats(directory):
-    count = 0
-    total_size = 0
-    for file in os.listdir(directory):
-        file_path = os.path.join(directory, file)
-        if os.path.isfile(file_path):
-            count += 1
-            total_size += os.path.getsize(file_path)
-    return count, total_size / (1024 * 1024)  # Size in MB
-
 # Load state
 def load_state():
-    if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, 'r') as f:
-            return json.load(f)
+    conn = sqlite3.connect(STATE_DB, check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL;")
+    cursor.execute('''CREATE TABLE IF NOT EXISTS app_state (id INTEGER PRIMARY KEY, data TEXT)''')
+    cursor.execute('''INSERT OR IGNORE INTO app_state (id, data) VALUES (1, '{}')''')
+    conn.commit()
     
-    # Initialize new state
-    state = {
-        "global_processed": [],  # List of all processed images (by all users)
-        "batches": {"1": [], "2": [], "3": []},  # Per-user batches
-        "user_processed": {"1": [], "2": [], "3": [], "admin": []},  # Processed by each user
-        "current_sort_index": {"1": 0, "2": 0, "3": 0, "admin": 0},  # Sort index per user
-        "current_trash_index": {"1": 0, "2": 0, "3": 0, "admin": 0},  # Trash index per user
-        "current_broken_index": {"1": 0, "2": 0, "3": 0, "admin": 0}  # Broken index per user
-    }
+    cursor.execute('''SELECT data FROM app_state WHERE id = 1''')
+    data_str = cursor.fetchone()[0]
+    if data_str:
+        state = json.loads(data_str)
+    else:
+        state = {}
     
-    # Distribute images into batches if not already done
-    all_images = get_images_in_dir(SOURCE_DIR)
-    if all_images:
-        random.shuffle(all_images)  # Shuffle for fair distribution
-        batch_size = len(all_images) // 3
-        state["batches"]["1"] = all_images[:batch_size]
-        state["batches"]["2"] = all_images[batch_size:2*batch_size]
-        state["batches"]["3"] = all_images[2*batch_size:]  # Remainder goes to user 3
+    # Initialize if empty or missing keys
+    if not state or not all(key in state for key in ["global_processed", "batches", "user_processed", "current_sort_index", "current_trash_index", "current_broken_index"]):
+        state = {
+            "global_processed": [],  
+            "batches": {"1": [], "2": [], "3": []},  
+            "user_processed": {"1": [], "2": [], "3": [], "admin": []},  
+            "current_sort_index": {"1": 0, "2": 0, "3": 0, "admin": 0},  
+            "current_trash_index": {"1": 0, "2": 0, "3": 0, "admin": 0},  
+            "current_broken_index": {"1": 0, "2": 0, "3": 0, "admin": 0}  
+        }
+    
+    # Distribute images into batches if not already done (check if batches are empty)
+    if not any(state["batches"].values()):
+        all_images = get_images_in_dir(SOURCE_DIR)
+        if all_images:
+            random.shuffle(all_images)  # Shuffle for fair distribution
+            batch_size = len(all_images) // 3
+            state["batches"]["1"] = all_images[:batch_size]
+            state["batches"]["2"] = all_images[batch_size:2*batch_size]
+            state["batches"]["3"] = all_images[2*batch_size:]  # Remainder goes to user 3
+        save_state(state)  # Save after initialization
+    
+    conn.close()
     return state
 
 # Save state
 def save_state(state):
-    with open(STATE_FILE, 'w') as f:
-        json.dump(state, f, indent=2)
+    conn = sqlite3.connect(STATE_DB, check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL;")
+    json_data = json.dumps(state, indent=2)
+    cursor.execute('''UPDATE app_state SET data = ? WHERE id = 1''', (json_data,))
+    conn.commit()
+    conn.close()
+
+# Rebuild state from existing files in directories
+def rebuild_state():
+    state = {
+        "global_processed": [],
+        "batches": {"1": [], "2": [], "3": []},
+        "user_processed": {"1": [], "2": [], "3": [], "admin": []},
+        "current_sort_index": {"1": 0, "2": 0, "3": 0, "admin": 0},
+        "current_trash_index": {"1": 0, "2": 0, "3": 0, "admin": 0},
+        "current_broken_index": {"1": 0, "2": 0, "3": 0, "admin": 0}
+    }
+    
+    # Collect all images from managed directories
+    processed_images = []
+    for dir_name in MANAGED_DIRS:
+        processed_images.extend(get_images_in_dir(dir_name))
+    
+    # Add processed images to global_processed and distribute to user_processed
+    if processed_images:
+        random.shuffle(processed_images)
+        batch_size = len(processed_images) // 3
+        state["global_processed"] = processed_images
+        state["user_processed"]["1"] = processed_images[:batch_size]
+        state["user_processed"]["2"] = processed_images[batch_size:2*batch_size]
+        state["user_processed"]["3"] = processed_images[2*batch_size:]
+        state["user_processed"]["admin"] = processed_images  # Admin has access to all processed
+    
+    # Distribute unprocessed images from SOURCE_DIR to batches
+    all_source_images = get_images_in_dir(SOURCE_DIR)
+    unprocessed_images = [img for img in all_source_images if img not in state["global_processed"]]
+    if unprocessed_images:
+        random.shuffle(unprocessed_images)
+        batch_size = len(unprocessed_images) // 3
+        state["batches"]["1"] = unprocessed_images[:batch_size]
+        state["batches"]["2"] = unprocessed_images[batch_size:2*batch_size]
+        state["batches"]["3"] = unprocessed_images[2*batch_size:]
+    
+    save_state(state)
+    return state
 
 hotkeys.activate([
     hotkeys.hk("details", "q"),  # Q для "Детали"
@@ -126,7 +186,7 @@ if user_id == "admin":
 else:
     remaining_source_images = [img for img in state["batches"].get(user_id, []) if img not in state["global_processed"]]
 
-tab1, tab2, tab3 = st.tabs(["Стата и предпросмотр", "Сортировка", "Стата по батчам"])
+tab1, tab2, tab3 = st.tabs(["Стата и предпросмотр", "Сортировка", "Статистика по пользователям"])
 
 with tab1:
     # Collect info
@@ -478,7 +538,6 @@ with tab2:
         else:
             st.write("Нет изображений в необработанном для вашего доступа.")
 
-
 with tab3:
     if user_id == "admin":
         for uid in ["1", "2", "3"]:
@@ -518,6 +577,40 @@ with tab3:
                 st.pyplot(fig)
             else:
                 st.write("Нет данных для диаграммы.")
+
+        # New functionality for admin: Check and rebuild state
+        st.subheader("Проверка и перезаполнение базы")
+        if st.button("Проверить и перезаполнить базу"):
+            state = rebuild_state()
+            st.success("База данных проверена и перезаполнена.")
+            st.rerun()
+
+        # New functionality for admin: Distribute new files
+        st.subheader("Распределение новых файлов")
+        all_batched = [item for sublist in state["batches"].values() for item in sublist]
+        new_images = [img for img in all_source_images if img not in all_batched and img not in state["global_processed"]]
+        st.write(f"Найдено новых изображений: {len(new_images)}")
+
+        if len(new_images) > 0:
+            if st.button("Распределить равномерно между батчами"):
+                random.shuffle(new_images)
+                batch_size = len(new_images) // 3
+                state["batches"]["1"].extend(new_images[:batch_size])
+                state["batches"]["2"].extend(new_images[batch_size:2*batch_size])
+                state["batches"]["3"].extend(new_images[2*batch_size:])
+                save_state(state)
+                st.success("Новые изображения распределены равномерно.")
+                st.rerun()
+
+            selected_uid = st.selectbox("Выбрать батч для всех новых", ["1", "2", "3"])
+            if st.button("Закинуть все новые в выбранный батч"):
+                state["batches"][selected_uid].extend(new_images)
+                save_state(state)
+                st.success(f"Новые изображения добавлены в батч {selected_uid}.")
+                st.rerun()
+        else:
+            st.write("Нет новых изображений для распределения.")
+
     else:
         st.subheader(f"Ваша статистика (пользователь {user_id})")
         batch_basenames = set(os.path.basename(img) for img in state["batches"].get(user_id, []))
