@@ -209,8 +209,12 @@ __marimo__/
 
 sorting_state.json
 sorting_state.db
+stats_cache.json
 
 /Детали/
 /Корзина/
 /Повреждения/
 /Чёто не то/
+
+/BATCH*
+/TEMP
